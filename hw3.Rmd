@@ -1,0 +1,100 @@
+---
+title: "HW3"
+author: "Kirill Soloshenko"
+date: "2025-10-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# This removes all variables from the workspace
+rm(list = ls())
+```
+
+## Импорты
+
+```{r imports}
+library(ggplot2)
+library(tidyverse)
+# library(hrbrthemes) ## недоступен
+library(viridis)
+library(readxl)
+library(lme4)
+library(lmerTest)
+```
+## Загрузка данных
+
+```{r loading}
+unix_path <- "./data/"
+windows_path <- ".\\data\\"
+
+## ПОМЕНЯТЬ ДЛЯ UNIX-СИСТЕМ!!
+datadir <- windows_path
+
+df_meta <- read_excel(paste0(datadir, 'DATA_TMS_meta.xlsx'))
+df_data <- read_excel(paste0(datadir, 'data_TMS.xlsx')) |>
+  mutate(
+    Error_type = ifelse(is.na(Error_type), "NoError", Error_type),
+    Response = ifelse(is.na(Response), "NoResponse", Response)
+  ) |>
+  filter(!is.na(RT_start)) |>
+  filter(!is.na(RT_end))
+```
+
+```{r glimpse meta}
+glimpse(df_meta)
+```
+```{r glimpse data}
+glimpse(df_data)
+```
+## Гипотезы
+
+Параметры протокола тестирования должны влиять на начало произнесения целевого слова.
+
+- H0.1 -- частота и задержка стимуляции не влияют на начало произнесения целевого слова
+- H1.1 -- частота и задержка стимуляции влияют на начало произнесения целевого слова
+
+Параметры протокола тестирования должны влиять на вероятность ошибки.
+
+- H0.2 -- частота и задержка стимуляции не влияют на вероятность ошибки
+- H1.2 -- частота и задержка стимуляции влияют на вероятность ошибки
+
+```{r lmer}
+model <- lmer(
+ RT_start ~ Freq + Onset + (1 | pID) + (1 | StimSite), 
+ data = df_data,
+ REML = FALSE
+)
+
+summary(model)
+```
+Видим, что начало произнесения немножко варьируется в зависимости от точек стимуляции и чуть больше варьируется в зависимости от подопытного.
+Видим сильную вариативность в зависимости от неучтенных факторов.
+Видим статистически значимый эффект частоты (\*\*\*) и статистически значимый эффект задержки (\*\*) на начало произнесения. Чем больше частота, тем бстрее начало произнесения (отрицательная корелляция). Чем больше задержка стимуляции, тем медленнее начало произнесения (положительная корелляция). H0.1 отвергается в пользу H1.1.
+
+
+```{r scale}
+## Если не отскалировать, модель не сходится.
+df_data <- df_data |>
+  mutate(
+    Freq_scaled = scale(Freq),
+    Onset_scaled = scale(Onset)
+  )
+```
+
+
+```{r glmer}
+model <- glmer(
+  Error ~ Freq_scaled + Onset_scaled + (1 | pID) + (1 | StimSite),
+  data = df_data,
+  family = binomial,
+  control = glmerControl(
+    optimizer = "bobyqa",
+    optCtrl = list(maxfun = 2e5)
+  )
+)
+summary(model)
+```
+Видим небольшие различия в ошибках между разными подопытными и при разных точках стимуляции.
+Видим статистически значимое влияние частоты (\*\*\*) и задержки (\*\*) на появление ошибки. Чем выше частота, тем вероятнее ошибка (положительная корелляция). Чем больше задержка, тем ниже верояность ошибки (отрицательная корелляция). Конкретные числа здесь дать сложно потому что значения отскалированы. H0.2 отвергается в пользу H1.2.
